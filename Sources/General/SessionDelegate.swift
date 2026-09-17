@@ -25,14 +25,70 @@
 //
 
 import Foundation
+import Security
 
 internal class SessionDelegate: NSObject {
     internal weak var manager: SessionManager?
 
+    private func handleServerTrust(
+        challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+              let serverTrust = challenge.protectionSpace.serverTrust,
+              let origin = Self.origin(for: challenge.protectionSpace) else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+        if SecTrustEvaluateWithError(serverTrust, nil) {
+            completionHandler(.performDefaultHandling, nil)
+        } else if manager?.configuration.allowedUntrustedTLSOrigins.contains(origin) == true {
+            completionHandler(.useCredential, URLCredential(trust: serverTrust))
+        } else if let challengeHandler = manager?.configuration.untrustedTLSChallengeHandler {
+            // 让宿主展示确认后直接恢复同一条 Tiercel 任务，
+            // 不再先失败、丢失任务上下文后再依赖页面重试。
+            challengeHandler(origin) { isApproved in
+                if isApproved {
+                    completionHandler(.useCredential, URLCredential(trust: serverTrust))
+                } else {
+                    completionHandler(.performDefaultHandling, nil)
+                }
+            }
+        } else {
+            completionHandler(.performDefaultHandling, nil)
+        }
+    }
+
+    private static func origin(for protectionSpace: URLProtectionSpace) -> String? {
+        guard protectionSpace.protocol?.lowercased() == "https",
+              !protectionSpace.host.isEmpty else { return nil }
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = protectionSpace.host.lowercased()
+        components.port = protectionSpace.port > 0 ? protectionSpace.port : 443
+        return components.string
+    }
 }
 
 
 extension SessionDelegate: URLSessionDownloadDelegate {
+    public func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        handleServerTrust(challenge: challenge, completionHandler: completionHandler)
+    }
+
+    public func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        handleServerTrust(challenge: challenge, completionHandler: completionHandler)
+    }
+
     public func urlSession(_ session: URLSession, didBecomeInvalidWithError error: Error?) {
         manager?.didBecomeInvalidation(withError: error)
     }
