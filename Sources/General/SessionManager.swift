@@ -538,7 +538,8 @@ extension SessionManager {
     
     public func remove(_ task: DownloadTask, completely: Bool = false, onMainQueue: Bool = true, handler: Handler<DownloadTask>? = nil) {
         operationQueue.async {
-            guard let _ = self.fetchTask(task.url) else {
+            // 删除在队列内核对对象身份，防止旧对象误删同 URL 的新任务及文件。
+            guard self.fetchTask(task.url) === task else {
                 self.log(.error("can't remove downloadTask", error: TiercelError.fetchDownloadTaskFailed(url: task.url)))
                 return
             }
