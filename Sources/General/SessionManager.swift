@@ -263,7 +263,13 @@ public class SessionManager {
 
     private func createSession(_ completion: (() -> ())? = nil) {
         guard shouldCreatSession else { return }
-        let sessionConfiguration = URLSessionConfiguration.background(withIdentifier: identifier)
+        // server-trust challenge 只能由前台 delegate 决策；普通下载仍保留后台会话。
+        let sessionConfiguration: URLSessionConfiguration
+        if configuration.allowedUntrustedTLSOrigins.isEmpty {
+            sessionConfiguration = .background(withIdentifier: identifier)
+        } else {
+            sessionConfiguration = .default
+        }
         sessionConfiguration.timeoutIntervalForRequest = configuration.timeoutIntervalForRequest
         sessionConfiguration.httpMaximumConnectionsPerHost = 100000
         sessionConfiguration.allowsCellularAccess = configuration.allowsCellularAccess
@@ -685,6 +691,13 @@ extension SessionManager {
         }
         session?.getTasksWithCompletionHandler { [weak self] (dataTasks, uploadTasks, downloadTasks) in
             guard let self = self else { return }
+            let restoredURLs = Set(downloadTasks.compactMap { $0.currentRequest?.url })
+            if !self.configuration.allowedUntrustedTLSOrigins.isEmpty {
+                // default session 重启后不会恢复任务，避免缓存状态永久停在 running。
+                self.tasks
+                    .filter { $0.status == .running && !restoredURLs.contains($0.currentURL) }
+                    .forEach { $0.status = .suspended }
+            }
             downloadTasks.forEach { downloadTask in
                 if downloadTask.state == .running,
                     let currentURL = downloadTask.currentRequest?.url,
@@ -1011,5 +1024,3 @@ extension SessionManager {
     }
     
 }
-
-
