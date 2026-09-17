@@ -50,9 +50,14 @@ public struct SessionConfiguration {
     // 是否允许蜂窝网络下载
     public var allowsCellularAccess: Bool = false
 
+    /// 仅对用户逐个确认过的 HTTPS Origin 放行系统不信任证书。
+    public var allowedUntrustedTLSOrigins: [String] = []
+
+    /// 下载跳转到未确认 Origin 时，由宿主 App 异步完成风险确认。
+    /// 回调 true 会继续当前 challenge，false 则保持系统默认拒绝。
+    public var untrustedTLSChallengeHandler: ((String, @escaping (Bool) -> Void) -> Void)?
+
     public init() {
 
     }
 }
-
-
